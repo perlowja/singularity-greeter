@@ -1361,9 +1361,23 @@ int main(int argc, char **argv) {
 
         int pr = poll(pfds, 2, handoff ? 100 : 1000);
 
-        if (pr > 0 && (pfds[0].revents & POLLIN)) wl_display_read_events(display);
-        else wl_display_cancel_read(display);
-        wl_display_dispatch_pending(display);
+        if (pr > 0 && (pfds[0].revents & (POLLERR | POLLHUP | POLLNVAL))) {
+            wl_display_cancel_read(display);
+            running = false;
+            break;
+        }
+        if (pr > 0 && (pfds[0].revents & POLLIN)) {
+            if (wl_display_read_events(display) < 0) {
+                running = false;
+                break;
+            }
+        } else {
+            wl_display_cancel_read(display);
+        }
+        if (wl_display_dispatch_pending(display) < 0) {
+            running = false;
+            break;
+        }
 
         if (greetd_fd >= 0 && !handoff && pr > 0 && (pfds[1].revents & (POLLIN | POLLHUP))) greetd_handle();
         if (handoff_tick()) { running = false; break; }
@@ -1374,6 +1388,6 @@ int main(int argc, char **argv) {
         if (tm.tm_min != last_min) { last_min = tm.tm_min; render_all(); }
     }
 
-    wl_display_roundtrip(display);
+    if (wl_display_get_error(display) == 0) wl_display_roundtrip(display);
     return 0;
 }
