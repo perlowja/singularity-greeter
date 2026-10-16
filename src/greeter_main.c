@@ -58,6 +58,7 @@ static size_t password_len = 0;
 static char pending_password[1024];
 static char status_text[128] = "";
 static bool auth_is_pin = false; /* SintyOS: the credential is a PIN, not a Unix password */
+static bool auth_has_tpm = true;
 static bool recovery_mode = false; /* --recovery: forgotten-PIN escape hatch, launched as root by sinty-greetd-launch */
 static int recovery_step = 0;      /* 0 = enter recovery code, 1 = enter new PIN */
 static char recovery_code[256] = "";
@@ -278,9 +279,9 @@ static void render_surface(struct wl_surface *surface, int w, int h) {
     st.status_text = status_text[0] ? status_text : NULL;
     st.status_error = status_error;
     if (recovery_mode)
-        st.auth_label = recovery_step == 0 ? "Recovery code" : "New PIN";
+        st.auth_label = recovery_step == 0 ? "Recovery code" : (auth_has_tpm ? "New PIN" : "New passphrase");
     else
-        st.auth_label = auth_is_pin ? "PIN" : "Password";
+        st.auth_label = auth_is_pin ? (auth_has_tpm ? "PIN" : "Passphrase") : "Password";
 
     double cx, cy, cw, ch;
     loginui_render(cr, &st, &cx, &cy, &cw, &ch);
@@ -989,6 +990,7 @@ static void find_os_logo(void) {
         g_free(content);
     }
     auth_is_pin = (id[0] != '\0' && g_str_has_prefix(id, "sinty"));
+    auth_has_tpm = g_file_test("/dev/tpmrm0", G_FILE_TEST_EXISTS) || g_file_test("/dev/tpm0", G_FILE_TEST_EXISTS);
     if (try_logo_file(logo)) return;
     if (try_logo_file(id)) return;
     try_logo_file("emblem-singularity");
