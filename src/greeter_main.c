@@ -447,6 +447,17 @@ static void greetd_create_session(const char *user) {
     greetd_send_object(b);
 }
 
+static bool is_plain_credential_prompt(const char *m) {
+    char buf[64];
+    size_t n = 0;
+    for (const char *c = m; *c && n < sizeof buf - 1; c++) {
+        if (*c == ':' || *c == ' ') continue;
+        buf[n++] = (char) g_ascii_tolower(*c);
+    }
+    buf[n] = '\0';
+    return n == 0 || g_strcmp0(buf, "pin") == 0 || g_strcmp0(buf, "password") == 0;
+}
+
 static void greetd_post_response(const char *response) {
     JsonBuilder *b = json_builder_new();
     json_builder_begin_object(b);
@@ -627,7 +638,8 @@ static void greetd_handle(void) {
                         snprintf(status_text, sizeof status_text, "%s", "Authenticating...");
                     } else {
                         auth_prompt_waiting = true;
-                        snprintf(status_text, sizeof status_text, "%s", m);
+                        if (is_plain_credential_prompt(m)) status_text[0] = '\0';
+                        else snprintf(status_text, sizeof status_text, "%s", m);
                     }
                     status_error = false;
                     render_all();
