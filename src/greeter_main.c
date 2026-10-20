@@ -75,6 +75,7 @@ static double handoff_t0 = 0.0;
 static double handoff_s = 0.0;
 static double handoff_progress = 0.0;
 static cairo_surface_t *brand_logo = NULL;
+static int32_t render_scale = 1;
 
 struct rect { double x, y, w, h; bool valid; };
 static struct rect user_hit[32];
@@ -92,6 +93,7 @@ struct g_output {
     struct wl_surface *surface;
     struct zwlr_layer_surface_v1 *layer_surface;
     uint32_t width, height;
+    int32_t scale;
     bool configured;
     struct wl_callback *frame_cb;
     struct wl_surface *handoff_surface;
@@ -363,7 +365,7 @@ static void render_surface(struct wl_surface *surface, int w, int h) {
 
     if (handoff) {
         cairo_push_group(cr);
-        loginui_render_brand(cr, w, h, brand_logo, 0.0, 0.0);
+        loginui_render_brand_progress(cr, w, h, render_scale, brand_logo, 0.0, 1.0);
         cairo_pop_group_to_source(cr);
         if (handoff_progress >= 1.0) cairo_paint(cr);
         else cairo_paint_with_alpha(cr, handoff_progress);
@@ -387,6 +389,7 @@ static void render_all(void) {
             o->frame_cb = wl_surface_frame(o->surface);
             wl_callback_add_listener(o->frame_cb, &handoff_frame_listener, &o->frame_cb);
         }
+        render_scale = o->scale > 0 ? o->scale : 1;
         render_surface(o->surface, (int)o->width, (int)o->height);
     }
 }
@@ -1119,6 +1122,7 @@ static void layer_configure(void *data, struct zwlr_layer_surface_v1 *ls,
     struct g_output *o = data;
     o->width = w; o->height = h; o->configured = true;
     zwlr_layer_surface_v1_ack_configure(ls, serial);
+    render_scale = o->scale > 0 ? o->scale : 1;
     render_surface(o->surface, (int)w, (int)h);
 }
 static void layer_closed(void *data, struct zwlr_layer_surface_v1 *ls) { running = false; }
@@ -1156,7 +1160,7 @@ static void handoff_configure(void *data, struct zwlr_layer_surface_v1 *ls,
     cairo_t *cr;
     struct loginui_buffer *b = loginui_create_buffer(shm, w, h, &cr);
     if (!b) { o->handoff_presented = true; return; }
-    loginui_render_brand(cr, (int)w, (int)h, brand_logo, 0.0, 0.0);
+    loginui_render_brand_progress(cr, (int)w, (int)h, o->scale > 0 ? o->scale : 1, brand_logo, 0.0, 1.0);
     cairo_destroy(cr);
     struct wl_callback *cb = wl_surface_frame(o->handoff_surface);
     wl_callback_add_listener(cb, &handoff_presented_listener, o);
@@ -1246,6 +1250,21 @@ static void seat_name(void *data, struct wl_seat *s, const char *name) {
 
 static const struct wl_seat_listener seat_listener = { seat_capabilities, seat_name };
 
+static void output_geometry(void *data, struct wl_output *o, int32_t x, int32_t y,
+                            int32_t pw, int32_t ph, int32_t sub, const char *make,
+                            const char *model, int32_t transform) {}
+static void output_mode(void *data, struct wl_output *o, uint32_t flags,
+                        int32_t w, int32_t h, int32_t refresh) {}
+static void output_done(void *data, struct wl_output *o) {}
+static void output_scale(void *data, struct wl_output *wo, int32_t factor) {
+    struct g_output *o = data;
+    o->scale = factor > 0 ? factor : 1;
+}
+static const struct wl_output_listener output_listener = {
+    .geometry = output_geometry, .mode = output_mode,
+    .done = output_done, .scale = output_scale,
+};
+
 static void reg_global(void *data, struct wl_registry *reg, uint32_t name,
                        const char *iface, uint32_t version) {
     if (strcmp(iface, wl_compositor_interface.name) == 0) {
@@ -1264,6 +1283,8 @@ static void reg_global(void *data, struct wl_registry *reg, uint32_t name,
         struct g_output *o = calloc(1, sizeof(*o));
         o->name = name;
         o->wl_output = wl_registry_bind(reg, name, &wl_output_interface, version < 3 ? version : 3);
+        o->scale = 1;
+        wl_output_add_listener(o->wl_output, &output_listener, o);
         o->next = outputs;
         outputs = o;
     }
